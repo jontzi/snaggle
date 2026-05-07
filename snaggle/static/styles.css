@@ -195,47 +195,57 @@ button:disabled {
   }
 
   .shell {
-    align-items: start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     min-height: 100svh;
-    padding: 14px;
+    padding: 18px;
   }
 
   .panel {
     width: 100%;
-    min-height: calc(100svh - 28px);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 24px 18px;
+    max-width: 430px;
+    min-height: auto;
+    padding: 28px 18px 24px;
     box-shadow: 5px 5px 0 var(--ink);
   }
 
   .brand-row {
-    margin-bottom: 18px;
+    position: relative;
+    justify-content: center;
+    margin-bottom: 16px;
   }
 
   .eyebrow {
     font-size: 0.72rem;
+    text-align: center;
   }
 
   .status-dot {
+    position: absolute;
+    right: 0;
     width: 12px;
     height: 12px;
   }
 
   h1 {
-    font-size: clamp(3rem, 17vw, 4.25rem);
+    font-size: clamp(3.15rem, 18vw, 4.45rem);
     line-height: 0.92;
+    text-align: center;
   }
 
   .subtitle {
-    margin: 14px 0 28px;
+    margin: 14px auto 26px;
+    max-width: 310px;
     font-size: 1.02rem;
     line-height: 1.32;
+    text-align: center;
   }
 
   .input-label {
+    display: block;
     font-size: 0.82rem;
+    text-align: left;
   }
 
   .input-row {
@@ -266,27 +276,28 @@ button:disabled {
 
   .message {
     margin-top: 14px;
+    text-align: center;
   }
 
   .support-line {
     margin-top: 14px;
     padding-top: 14px;
+    text-align: center;
   }
 }
 
 @media (max-width: 380px) {
   .shell {
-    padding: 10px;
+    padding: 12px;
   }
 
   .panel {
-    min-height: calc(100svh - 20px);
-    padding: 20px 14px;
+    padding: 24px 14px 20px;
     box-shadow: 4px 4px 0 var(--ink);
   }
 
   h1 {
-    font-size: clamp(2.55rem, 16vw, 3.5rem);
+    font-size: clamp(2.85rem, 17vw, 3.7rem);
   }
 
   .subtitle {
