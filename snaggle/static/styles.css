@@ -190,31 +190,106 @@ button:disabled {
 }
 
 @media (max-width: 620px) {
+  body {
+    background-size: 34px 34px;
+  }
+
   .shell {
     align-items: start;
-    padding: 18px;
+    min-height: 100svh;
+    padding: 14px;
   }
 
   .panel {
-    padding: 28px 20px;
-    box-shadow: 6px 6px 0 var(--ink);
+    width: 100%;
+    min-height: calc(100svh - 28px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 24px 18px;
+    box-shadow: 5px 5px 0 var(--ink);
+  }
+
+  .brand-row {
+    margin-bottom: 18px;
+  }
+
+  .eyebrow {
+    font-size: 0.72rem;
+  }
+
+  .status-dot {
+    width: 12px;
+    height: 12px;
   }
 
   h1 {
-    font-size: clamp(2.8rem, 18vw, 4.7rem);
+    font-size: clamp(3rem, 17vw, 4.25rem);
+    line-height: 0.92;
+  }
+
+  .subtitle {
+    margin: 14px 0 28px;
+    font-size: 1.02rem;
+    line-height: 1.32;
+  }
+
+  .input-label {
+    font-size: 0.82rem;
   }
 
   .input-row {
     grid-template-columns: 1fr;
+    min-height: 0;
   }
 
   input {
-    min-height: 56px;
+    min-height: 58px;
+    padding: 0 14px;
+    font-size: 0.98rem;
   }
 
   button {
-    min-height: 54px;
+    min-height: 56px;
+    width: 100%;
     border-left: 0;
     border-top: 1.5px solid var(--line);
+    padding: 0 16px;
+    font-size: 0.96rem;
+  }
+
+  .detect-status,
+  .message,
+  .support-line {
+    font-size: 0.88rem;
+  }
+
+  .message {
+    margin-top: 14px;
+  }
+
+  .support-line {
+    margin-top: 14px;
+    padding-top: 14px;
+  }
+}
+
+@media (max-width: 380px) {
+  .shell {
+    padding: 10px;
+  }
+
+  .panel {
+    min-height: calc(100svh - 20px);
+    padding: 20px 14px;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  h1 {
+    font-size: clamp(2.55rem, 16vw, 3.5rem);
+  }
+
+  .subtitle {
+    margin-bottom: 24px;
   }
 }
