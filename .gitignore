@@ -1,0 +1,16 @@
+# Local homelab files that should not be published by accident.
+HOMELAB.md
+homepage-files/
+pihole/
+ingress/
+
+# Keep the generic public ingress example.
+!examples/
+!examples/traefik-ingress.yaml
+
+# Common local noise.
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.venv/

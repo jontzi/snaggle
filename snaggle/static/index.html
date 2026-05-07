@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Snaggle</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel" aria-labelledby="app-title">
+        <div class="brand-row">
+          <p class="eyebrow">Social video downloader</p>
+          <div class="status-dot" aria-hidden="true"></div>
+        </div>
+
+        <h1 id="app-title">Snaggle</h1>
+        <p class="subtitle">Download videos from your favorite social links</p>
+
+        <form id="download-form" class="download-form">
+          <label class="input-label" for="video-url">Paste a video link</label>
+          <div class="input-row">
+            <input
+              id="video-url"
+              name="url"
+              type="url"
+              inputmode="url"
+              autocomplete="off"
+              placeholder="https://..."
+              required
+            />
+            <button id="download-button" type="submit">Download</button>
+          </div>
+          <p id="detect-status" class="detect-status">Paste a link to detect source</p>
+        </form>
+
+        <p id="message" class="message" role="status" aria-live="polite"></p>
+        <p class="support-line">Supports Facebook, X/Twitter, TikTok, and Instagram</p>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
