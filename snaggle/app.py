@@ -16,7 +16,7 @@ STATIC_DIR = APP_DIR / "static"
 
 MAX_DOWNLOAD_SECONDS = int(os.getenv("MAX_DOWNLOAD_SECONDS", "900"))
 MAX_FILE_SIZE = os.getenv("MAX_FILE_SIZE", "2000M")
-X_TWITTER_IMPERSONATE = os.getenv("X_TWITTER_IMPERSONATE", "chrome")
+X_TWITTER_IMPERSONATE = os.getenv("X_TWITTER_IMPERSONATE", "")
 
 SUPPORTED_HOSTS = {
     "facebook": ("facebook.com", "fb.watch", "fb.com"),
@@ -100,7 +100,7 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
         "--output",
         "%(title).120B-%(id)s.%(ext)s",
     ]
-    if platform == "x/twitter" and X_TWITTER_IMPERSONATE:
+    if platform == "x/twitter" and X_TWITTER_IMPERSONATE.lower() != "false":
         command.extend(["--impersonate", X_TWITTER_IMPERSONATE])
     command.append(payload.url.strip())
 
