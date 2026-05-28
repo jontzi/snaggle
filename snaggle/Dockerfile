@@ -11,6 +11,8 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -c "import curl_cffi; print('curl_cffi', curl_cffi.__version__)" \
+    && yt-dlp --list-impersonate-targets | grep 'Chrome.*curl_cffi' | grep -vq unavailable
 
 COPY . .
 
