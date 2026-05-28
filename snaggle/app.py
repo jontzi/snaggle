@@ -16,7 +16,11 @@ STATIC_DIR = APP_DIR / "static"
 
 MAX_DOWNLOAD_SECONDS = int(os.getenv("MAX_DOWNLOAD_SECONDS", "900"))
 MAX_FILE_SIZE = os.getenv("MAX_FILE_SIZE", "2000M")
-X_TWITTER_IMPERSONATE = os.getenv("X_TWITTER_IMPERSONATE", "chrome")
+X_TWITTER_IMPERSONATE_TARGETS = os.getenv(
+    "X_TWITTER_IMPERSONATE_TARGETS",
+    "chrome-116:windows-10,chrome,false",
+)
+X_TWITTER_FORCE_IPV4 = os.getenv("X_TWITTER_FORCE_IPV4", "true").lower() != "false"
 
 SUPPORTED_HOSTS = {
     "facebook": ("facebook.com", "fb.watch", "fb.com"),
@@ -84,7 +88,7 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
     work_dir = Path(tempfile.mkdtemp(prefix="snaggle-"))
     background_tasks.add_task(shutil.rmtree, work_dir, ignore_errors=True)
 
-    command = [
+    base_command = [
         "yt-dlp",
         "--no-playlist",
         "--no-warnings",
@@ -100,21 +104,41 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
         "--output",
         "%(title).120B-%(id)s.%(ext)s",
     ]
-    if platform == "x/twitter" and X_TWITTER_IMPERSONATE.lower() not in {"", "false"}:
-        command.extend(["--impersonate", X_TWITTER_IMPERSONATE])
-    command.append(payload.url.strip())
 
+    attempts = [base_command]
+    if platform == "x/twitter":
+        attempts = []
+        targets = [
+            target.strip()
+            for target in X_TWITTER_IMPERSONATE_TARGETS.split(",")
+            if target.strip()
+        ]
+        for target in targets:
+            command = [*base_command]
+            if X_TWITTER_FORCE_IPV4:
+                command.append("--force-ipv4")
+            if target.lower() != "false":
+                command.extend(["--impersonate", target])
+            attempts.append(command)
+
+    completed = None
     try:
-        completed = subprocess.run(
-            command,
-            cwd=work_dir,
-            capture_output=True,
-            text=True,
-            timeout=MAX_DOWNLOAD_SECONDS,
-            check=False,
-        )
+        for command in attempts:
+            completed = subprocess.run(
+                [*command, payload.url.strip()],
+                cwd=work_dir,
+                capture_output=True,
+                text=True,
+                timeout=MAX_DOWNLOAD_SECONDS,
+                check=False,
+            )
+            if completed.returncode == 0:
+                break
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail="Download timed out.") from exc
+
+    if completed is None:
+        raise HTTPException(status_code=500, detail="Download failed.")
 
     if completed.returncode != 0:
         message = completed.stderr.strip().splitlines()[-1:] or ["Download failed."]
