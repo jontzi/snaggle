@@ -5,10 +5,9 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
+from curl_cffi import requests as curl_requests
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +31,7 @@ FXTWITTER_API_PATHS = os.getenv(
     "FXTWITTER_API_PATHS",
     "/2/status/{id},/status/{id},/{id}",
 )
+FXTWITTER_IMPERSONATE = os.getenv("FXTWITTER_IMPERSONATE", "chrome")
 HTTP_USER_AGENT = os.getenv(
     "SNAGGLE_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -84,15 +84,29 @@ def extract_tweet_id(url: str) -> str | None:
 
 
 def request_json(url: str) -> dict:
-    request = Request(url, headers={"User-Agent": HTTP_USER_AGENT, "Accept": "application/json"})
-    with urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    response = curl_requests.get(
+        url,
+        headers={"User-Agent": HTTP_USER_AGENT, "Accept": "application/json"},
+        impersonate=FXTWITTER_IMPERSONATE,
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def download_direct_file(url: str, destination: Path) -> Path:
-    request = Request(url, headers={"User-Agent": HTTP_USER_AGENT})
-    with urlopen(request, timeout=120) as response, destination.open("wb") as output:
-        shutil.copyfileobj(response, output, length=1024 * 1024)
+    response = curl_requests.get(
+        url,
+        headers={"User-Agent": HTTP_USER_AGENT},
+        impersonate=FXTWITTER_IMPERSONATE,
+        stream=True,
+        timeout=120,
+    )
+    response.raise_for_status()
+    with destination.open("wb") as output:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                output.write(chunk)
     return destination
 
 
@@ -122,7 +136,7 @@ def download_twitter_via_fxtwitter(url: str, work_dir: Path) -> Path:
         try:
             data = request_json(f"{FXTWITTER_API_BASE}{path}")
             break
-        except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
+        except (curl_requests.exceptions.RequestException, OSError, json.JSONDecodeError) as exc:
             errors.append(str(exc))
 
     if data is None:
@@ -189,7 +203,12 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
                 filename=video.name,
                 background=background_tasks,
             )
-        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+        except (
+            curl_requests.exceptions.RequestException,
+            OSError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
             fallback_error = f"FxTwitter fallback failed: {exc}"
 
     base_command = [
