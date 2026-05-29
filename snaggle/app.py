@@ -28,6 +28,10 @@ X_TWITTER_API_TARGETS = os.getenv("X_TWITTER_API_TARGETS", "syndication,graphql,
 X_TWITTER_FORCE_IPV4 = os.getenv("X_TWITTER_FORCE_IPV4", "true").lower() != "false"
 X_TWITTER_FX_FALLBACK = os.getenv("X_TWITTER_FX_FALLBACK", "true").lower() != "false"
 FXTWITTER_API_BASE = os.getenv("FXTWITTER_API_BASE", "https://api.fxtwitter.com").rstrip("/")
+FXTWITTER_API_PATHS = os.getenv(
+    "FXTWITTER_API_PATHS",
+    "/2/status/{id},/status/{id},/{id}",
+)
 HTTP_USER_AGENT = os.getenv(
     "SNAGGLE_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -92,12 +96,38 @@ def download_direct_file(url: str, destination: Path) -> Path:
     return destination
 
 
+def find_video_urls(value: object) -> list[str]:
+    urls = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "url" and isinstance(item, str) and ".mp4" in item:
+                urls.append(item)
+            else:
+                urls.extend(find_video_urls(item))
+    elif isinstance(value, list):
+        for item in value:
+            urls.extend(find_video_urls(item))
+    return urls
+
+
 def download_twitter_via_fxtwitter(url: str, work_dir: Path) -> Path:
     tweet_id = extract_tweet_id(url)
     if not tweet_id:
         raise ValueError("Could not find a tweet ID in the X/Twitter link.")
 
-    data = request_json(f"{FXTWITTER_API_BASE}/2/status/{tweet_id}")
+    errors = []
+    data = None
+    for path_template in FXTWITTER_API_PATHS.split(","):
+        path = path_template.strip().format(id=tweet_id)
+        try:
+            data = request_json(f"{FXTWITTER_API_BASE}{path}")
+            break
+        except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
+            errors.append(str(exc))
+
+    if data is None:
+        raise ValueError("; ".join(errors) or "FxTwitter request failed.")
+
     if data.get("code") != 200:
         raise ValueError(data.get("message") or "FxTwitter could not resolve this post.")
 
@@ -109,11 +139,16 @@ def download_twitter_via_fxtwitter(url: str, work_dir: Path) -> Path:
     if external.get("url"):
         candidates.append(external)
 
-    if not candidates:
+    recursive_urls = find_video_urls(data)
+    if not candidates and not recursive_urls:
         raise ValueError("FxTwitter did not find a downloadable video for this post.")
 
-    selected = max(candidates, key=lambda item: (item.get("width") or 0) * (item.get("height") or 0))
-    media_url = selected["url"]
+    if candidates:
+        selected = max(candidates, key=lambda item: (item.get("width") or 0) * (item.get("height") or 0))
+        media_url = selected["url"]
+    else:
+        media_url = sorted(recursive_urls)[-1]
+
     extension = Path(urlparse(media_url).path).suffix or ".mp4"
     return download_direct_file(media_url, work_dir / f"x-twitter-{tweet_id}{extension}")
 
@@ -144,6 +179,7 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
     work_dir = Path(tempfile.mkdtemp(prefix="snaggle-"))
     background_tasks.add_task(shutil.rmtree, work_dir, ignore_errors=True)
 
+    fallback_error = None
     if platform == "x/twitter" and X_TWITTER_FX_FALLBACK:
         try:
             video = download_twitter_via_fxtwitter(payload.url.strip(), work_dir)
@@ -153,8 +189,8 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
                 filename=video.name,
                 background=background_tasks,
             )
-        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError):
-            pass
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            fallback_error = f"FxTwitter fallback failed: {exc}"
 
     base_command = [
         "yt-dlp",
@@ -220,6 +256,8 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
 
     if completed.returncode != 0:
         message = errors[-1:] or ["Download failed."]
+        if fallback_error:
+            message[0] = f"{fallback_error}; yt-dlp fallback failed: {message[0]}"
         raise HTTPException(status_code=422, detail=message[0])
 
     files = [
