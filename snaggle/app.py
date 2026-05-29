@@ -18,8 +18,9 @@ MAX_DOWNLOAD_SECONDS = int(os.getenv("MAX_DOWNLOAD_SECONDS", "900"))
 MAX_FILE_SIZE = os.getenv("MAX_FILE_SIZE", "2000M")
 X_TWITTER_IMPERSONATE_TARGETS = os.getenv(
     "X_TWITTER_IMPERSONATE_TARGETS",
-    "chrome-116:windows-10,chrome,false",
+    "chrome,chrome:windows-10,false",
 )
+X_TWITTER_API_TARGETS = os.getenv("X_TWITTER_API_TARGETS", "syndication,graphql,legacy")
 X_TWITTER_FORCE_IPV4 = os.getenv("X_TWITTER_FORCE_IPV4", "true").lower() != "false"
 
 SUPPORTED_HOSTS = {
@@ -108,20 +109,27 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
     attempts = [base_command]
     if platform == "x/twitter":
         attempts = []
+        apis = [
+            api.strip()
+            for api in X_TWITTER_API_TARGETS.split(",")
+            if api.strip()
+        ]
         targets = [
             target.strip()
             for target in X_TWITTER_IMPERSONATE_TARGETS.split(",")
             if target.strip()
         ]
-        for target in targets:
-            command = [*base_command]
-            if X_TWITTER_FORCE_IPV4:
-                command.append("--force-ipv4")
-            if target.lower() != "false":
-                command.extend(["--impersonate", target])
-            attempts.append(command)
+        for api in apis:
+            for target in targets:
+                command = [*base_command, "--extractor-args", f"twitter:api={api}"]
+                if X_TWITTER_FORCE_IPV4:
+                    command.append("--force-ipv4")
+                if target.lower() != "false":
+                    command.extend(["--impersonate", target])
+                attempts.append(command)
 
     completed = None
+    errors = []
     try:
         for command in attempts:
             completed = subprocess.run(
@@ -134,6 +142,9 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
             )
             if completed.returncode == 0:
                 break
+            stderr = completed.stderr.strip()
+            if stderr:
+                errors.append(stderr.splitlines()[-1])
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail="Download timed out.") from exc
 
@@ -141,7 +152,7 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
         raise HTTPException(status_code=500, detail="Download failed.")
 
     if completed.returncode != 0:
-        message = completed.stderr.strip().splitlines()[-1:] or ["Download failed."]
+        message = errors[-1:] or ["Download failed."]
         raise HTTPException(status_code=422, detail=message[0])
 
     files = [
