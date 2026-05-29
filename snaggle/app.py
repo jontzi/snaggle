@@ -7,7 +7,6 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-from curl_cffi import requests as curl_requests
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,7 +30,6 @@ FXTWITTER_API_PATHS = os.getenv(
     "FXTWITTER_API_PATHS",
     "/2/status/{id},/status/{id},/{id}",
 )
-FXTWITTER_IMPERSONATE = os.getenv("FXTWITTER_IMPERSONATE", "chrome")
 HTTP_USER_AGENT = os.getenv(
     "SNAGGLE_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -83,30 +81,43 @@ def extract_tweet_id(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def run_curl(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    command = [
+        "curl",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--retry",
+        "2",
+        "--connect-timeout",
+        "30",
+        "--max-time",
+        str(timeout),
+        "--user-agent",
+        HTTP_USER_AGENT,
+        *args,
+    ]
+    return subprocess.run(command, capture_output=True, text=True, check=False)
+
+
 def request_json(url: str) -> dict:
-    response = curl_requests.get(
-        url,
-        headers={"User-Agent": HTTP_USER_AGENT, "Accept": "application/json"},
-        impersonate=FXTWITTER_IMPERSONATE,
+    completed = run_curl(
+        ["--header", "Accept: application/json", url],
         timeout=30,
     )
-    response.raise_for_status()
-    return response.json()
+    if completed.returncode != 0:
+        raise ValueError(completed.stderr.strip() or "curl request failed")
+    return json.loads(completed.stdout)
 
 
 def download_direct_file(url: str, destination: Path) -> Path:
-    response = curl_requests.get(
-        url,
-        headers={"User-Agent": HTTP_USER_AGENT},
-        impersonate=FXTWITTER_IMPERSONATE,
-        stream=True,
+    completed = run_curl(
+        ["--output", str(destination), url],
         timeout=120,
     )
-    response.raise_for_status()
-    with destination.open("wb") as output:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):
-            if chunk:
-                output.write(chunk)
+    if completed.returncode != 0:
+        raise ValueError(completed.stderr.strip() or "curl download failed")
     return destination
 
 
@@ -136,7 +147,7 @@ def download_twitter_via_fxtwitter(url: str, work_dir: Path) -> Path:
         try:
             data = request_json(f"{FXTWITTER_API_BASE}{path}")
             break
-        except (curl_requests.exceptions.RequestException, OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
             errors.append(str(exc))
 
     if data is None:
@@ -204,7 +215,6 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
                 background=background_tasks,
             )
         except (
-            curl_requests.exceptions.RequestException,
             OSError,
             ValueError,
             json.JSONDecodeError,
