@@ -1,9 +1,13 @@
+import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -22,6 +26,13 @@ X_TWITTER_IMPERSONATE_TARGETS = os.getenv(
 )
 X_TWITTER_API_TARGETS = os.getenv("X_TWITTER_API_TARGETS", "syndication,graphql,legacy")
 X_TWITTER_FORCE_IPV4 = os.getenv("X_TWITTER_FORCE_IPV4", "true").lower() != "false"
+X_TWITTER_FX_FALLBACK = os.getenv("X_TWITTER_FX_FALLBACK", "true").lower() != "false"
+FXTWITTER_API_BASE = os.getenv("FXTWITTER_API_BASE", "https://api.fxtwitter.com").rstrip("/")
+HTTP_USER_AGENT = os.getenv(
+    "SNAGGLE_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+)
 
 SUPPORTED_HOSTS = {
     "facebook": ("facebook.com", "fb.watch", "fb.com"),
@@ -63,6 +74,50 @@ def display_platform(platform: str | None) -> str:
     return names.get(platform or "", "")
 
 
+def extract_tweet_id(url: str) -> str | None:
+    match = re.search(r"/status(?:es)?/(\d{2,20})", urlparse(url).path)
+    return match.group(1) if match else None
+
+
+def request_json(url: str) -> dict:
+    request = Request(url, headers={"User-Agent": HTTP_USER_AGENT, "Accept": "application/json"})
+    with urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def download_direct_file(url: str, destination: Path) -> Path:
+    request = Request(url, headers={"User-Agent": HTTP_USER_AGENT})
+    with urlopen(request, timeout=120) as response, destination.open("wb") as output:
+        shutil.copyfileobj(response, output, length=1024 * 1024)
+    return destination
+
+
+def download_twitter_via_fxtwitter(url: str, work_dir: Path) -> Path:
+    tweet_id = extract_tweet_id(url)
+    if not tweet_id:
+        raise ValueError("Could not find a tweet ID in the X/Twitter link.")
+
+    data = request_json(f"{FXTWITTER_API_BASE}/2/status/{tweet_id}")
+    if data.get("code") != 200:
+        raise ValueError(data.get("message") or "FxTwitter could not resolve this post.")
+
+    status = data.get("status") or {}
+    media = status.get("media") or {}
+    candidates = [video for video in media.get("videos") or [] if video.get("url")]
+
+    external = media.get("external") or {}
+    if external.get("url"):
+        candidates.append(external)
+
+    if not candidates:
+        raise ValueError("FxTwitter did not find a downloadable video for this post.")
+
+    selected = max(candidates, key=lambda item: (item.get("width") or 0) * (item.get("height") or 0))
+    media_url = selected["url"]
+    extension = Path(urlparse(media_url).path).suffix or ".mp4"
+    return download_direct_file(media_url, work_dir / f"x-twitter-{tweet_id}{extension}")
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -88,6 +143,18 @@ def download(payload: LinkRequest, background_tasks: BackgroundTasks) -> FileRes
 
     work_dir = Path(tempfile.mkdtemp(prefix="snaggle-"))
     background_tasks.add_task(shutil.rmtree, work_dir, ignore_errors=True)
+
+    if platform == "x/twitter" and X_TWITTER_FX_FALLBACK:
+        try:
+            video = download_twitter_via_fxtwitter(payload.url.strip(), work_dir)
+            return FileResponse(
+                video,
+                media_type="application/octet-stream",
+                filename=video.name,
+                background=background_tasks,
+            )
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError):
+            pass
 
     base_command = [
         "yt-dlp",
